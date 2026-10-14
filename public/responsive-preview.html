@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Podwise responsive verification</title>
+    <style>
+      body {
+        margin: 24px;
+        background: #f4f5ef;
+        color: #243028;
+        font: 16px system-ui;
+      }
+      h1 {
+        font-size: 24px;
+      }
+      section {
+        margin: 30px 0;
+        overflow: auto;
+      }
+      iframe {
+        display: block;
+        background: #faf9f6;
+        border: 1px solid #ccd3c8;
+        height: 900px;
+      }
+      p {
+        max-width: 900px;
+        line-height: 1.6;
+      }
+      h2 {
+        font-size: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Podwise responsive verification</h1>
+    <p>
+      This review page embeds the actual application at three viewport widths.
+      Each preview uses the same browser history. It does not change the
+      application or simulate results.
+    </p>
+    <section>
+      <h2>Mobile — 375 px</h2>
+      <iframe
+        id="mobile"
+        title="Mobile application"
+        src="/"
+        width="375"
+      ></iframe>
+    </section>
+    <section>
+      <h2>Tablet — 768 px</h2>
+      <iframe
+        id="tablet"
+        title="Tablet application"
+        src="/"
+        width="768"
+      ></iframe>
+    </section>
+    <section>
+      <h2>Desktop — 1280 px</h2>
+      <iframe
+        id="desktop"
+        title="Desktop application"
+        src="/"
+        width="1280"
+      ></iframe>
+    </section>
+  </body>
+</html>
