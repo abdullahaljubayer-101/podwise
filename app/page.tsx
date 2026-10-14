@@ -1,35 +1,1297 @@
-'use client';
-import {useEffect,useRef,useState} from 'react';
-import {AudioLines,ArrowRight,Plus,Search,UploadCloud,FileText,Headphones,Check,Download,Copy,Sparkles,BookOpen,ListMusic,Menu,X,Trash2,RotateCcw,Shield,AlertCircle,ChevronRight,Clock,ExternalLink} from 'lucide-react';
-import type {Analysis,Segment} from '../supabase/functions/podwise-worker/core';
-type Job={id:string;title:string;status:string;kind:string;created_at:string;duration_seconds:number|null;transcript?:string;segments?:Segment[];result?:Analysis;error?:string;revisions?:{at:string;target:string;instruction:string}[]};
-const sample=`[00:00] Welcome to Small Habits, a podcast about practical learning. Today we are discussing active recall. Active recall means trying to retrieve information from memory before looking at the answer. It differs from rereading because the learner has to produce an answer rather than recognize familiar words.\n[01:15] A simple method is to close your notes after a short reading session and write down three things you remember. Then reopen your notes and check what was accurate and what was missing. The purpose of checking is to correct mistakes, not to give yourself a perfect score.\n[02:30] Spaced practice means returning to material across separate sessions instead of concentrating all study into a single session. The example in this episode is reviewing a topic the next day, then again a few days later. The exact schedule should adapt to what you remember.\n[03:45] Combine these approaches by recalling before rereading at each review session. Keep the questions focused on the material you actually studied. Start with a five-minute session so the routine is easy to repeat. This recording does not prescribe one universal schedule or promise a guaranteed exam result.\n[05:00] The main takeaway is simple: retrieve, check, and revisit. Retrieval makes gaps visible, checking helps repair those gaps, and revisiting gives you another chance to practice. You can begin with one topic today.`;
-const labels:Record<string,string>={awaiting_upload:'Waiting for upload',queued:'Preparing transcription',transcribing:'Transcribing audio',awaiting_analysis:'Transcript ready',analyzing:'Finding ideas & questions',revising:'Applying your revision',completed:'Ready to explore',failed:'Needs another try'};
-const timestamp=(seconds:number)=>`${Math.floor(seconds/60).toString().padStart(2,'0')}:${Math.floor(seconds%60).toString().padStart(2,'0')}`;
-export default function App(){
- const [session,setSession]=useState(''),[health,setHealth]=useState<{ready:boolean;message:string}|null>(null),[jobs,setJobs]=useState<Job[]>([]),[job,setJob]=useState<Job|null>(null),[view,setView]=useState('new'),[tab,setTab]=useState('Overview'),[kind,setKind]=useState('audio'),[file,setFile]=useState<File|null>(null),[duration,setDuration]=useState(0),[text,setText]=useState(''),[title,setTitle]=useState(''),[permission,setPermission]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[toast,setToast]=useState(''),[query,setQuery]=useState(''),[mobile,setMobile]=useState(false),[audioUrl,setAudioUrl]=useState(''),[target,setTarget]=useState('overview'),[instruction,setInstruction]=useState(''),[answers,setAnswers]=useState<Record<number,number>>({}),[checked,setChecked]=useState(false),[highlight,setHighlight]=useState<number|null>(null);
- const audio=useRef<HTMLAudioElement>(null),input=useRef<HTMLInputElement>(null),resume=useRef(false),fileGeneration=useRef(0);
- useEffect(()=>{let s=localStorage.getItem('podwise-session-v2');if(!s){s=crypto.randomUUID()+crypto.randomUUID();localStorage.setItem('podwise-session-v2',s)}setSession(s);fetch('/api?health=1').then(r=>r.json()).then(setHealth).catch(()=>setHealth({ready:false,message:'Cannot reach the application server.'}))},[]);
- async function api(action:string,body:Record<string,unknown>={}){const r=await fetch('/api',{method:'POST',headers:{'Content-Type':'application/json','x-podwise-session':session},body:JSON.stringify({action,...body})});const d=await r.json();if(!r.ok)throw Error(d.error||'Request failed.');return d}
- async function list(){if(!session||!health?.ready)return;const r=await fetch('/api',{headers:{'x-podwise-session':session},cache:'no-store'});const d=await r.json();if(r.ok)setJobs(d);else setError(d.error)}
- useEffect(()=>{if(session&&health?.ready)list()},[session,health?.ready]);
- useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),4000);return()=>clearTimeout(timer)},[toast]);
- useEffect(()=>{if(!job?.id||!session)return;let stopped=false;let running=false;const load=async()=>{if(running)return;running=true;try{const r=await fetch('/api?id='+job.id,{headers:{'x-podwise-session':session},cache:'no-store'});const d=await r.json();if(!r.ok)throw Error(d.error);if(stopped)return;setJob(d);if(d.status==='awaiting_analysis'&&!resume.current){resume.current=true;try{await api('resume',{id:d.id})}finally{resume.current=false}}if(d.status==='completed'||d.status==='failed'){clearInterval(timer);list()}}catch(e){if(!stopped)setError(e instanceof Error?e.message:'Could not refresh the episode.')}finally{running=false}};load();const timer=setInterval(load,3000);return()=>{stopped=true;clearInterval(timer)}},[job?.id,session,job?.status]);
- useEffect(()=>{setAnswers({});setChecked(false)},[job?.result?.quiz]);
- const open=async(j:Job)=>{setJob(j);setView('episode');setTab('Overview');setError('');setMobile(false);setAudioUrl('');if(j.kind==='audio'&&j.status==='completed'){try{const d=await api('audio',{id:j.id});setAudioUrl(d.url)}catch(e){setError(e instanceof Error?e.message:'Audio unavailable')}}};
- const selectFile=(f?:File)=>{if(!f)return;const n=++fileGeneration.current;if(!/\.(mp3|wav|m4a)$/i.test(f.name)){setError('Choose an MP3, WAV, or M4A file.');return}if(f.size>20*1024*1024){setError('Choose an audio file under 20 MB.');return}setError('');setFile(null);setDuration(0);const u=URL.createObjectURL(f),a=new Audio(u);a.onloadedmetadata=()=>{URL.revokeObjectURL(u);if(n!==fileGeneration.current)return;if(!Number.isFinite(a.duration)||a.duration<1||a.duration>1200){setError('Use a recording between 1 second and 20 minutes.');return}setFile(f);setDuration(a.duration);setTitle(f.name.replace(/\.[^.]+$/,''))};a.onerror=()=>{URL.revokeObjectURL(u);if(n===fileGeneration.current)setError('This browser cannot decode the audio. Convert it to MP3 or WAV.')};};
- async function submit(){setBusy(true);setError('');try{if(!permission)throw Error('Confirm that you have permission to process this content.');if(kind==='audio'&&!file)throw Error('Choose a valid audio file first.');if(kind==='transcript'&&(text.trim().length<100||text.length>60000))throw Error('Use a transcript of 100–60,000 characters.');const mime=file?.name.toLowerCase().endsWith('.mp3')?'audio/mpeg':file?.name.toLowerCase().endsWith('.wav')?'audio/wav':'audio/mp4';const d=await api('create',{kind,title:title||'Untitled episode',permission,transcript:kind==='transcript'?text:undefined,size:file?.size,mime,duration});setJob({id:d.id,title:title||'Untitled episode',kind,status:kind==='audio'?'awaiting_upload':'analyzing',created_at:new Date().toISOString(),duration_seconds:duration});setView('episode');setTab('Overview');if(kind==='audio'&&file){const r=await fetch(d.uploadUrl,{method:'PUT',headers:{'Content-Type':mime,'x-upsert':'false'},body:file});if(!r.ok)throw Error('Audio upload failed. Delete this incomplete episode and try again.');await api('start',{id:d.id});setJob(j=>j?{...j,status:'transcribing'}:j);setAudioUrl(URL.createObjectURL(file))}await list()}catch(e){setError(e instanceof Error?e.message:'Processing could not start.')}finally{setBusy(false)}}
- async function revise(request=instruction){if(!job)return;setBusy(true);setError('');try{await api('revise',{id:job.id,target,instruction:request});setJob({...job,status:'revising',error:undefined});setInstruction('');if(target==='quiz'){setTab('Quiz');setAnswers({});setChecked(false)}else setTab('Overview')}catch(e){setError(e instanceof Error?e.message:'Revision failed.')}finally{setBusy(false)}}
- async function retry(){if(!job)return;setBusy(true);setError('');try{await api('retry',{id:job.id});setJob({...job,status:job.transcript?'analyzing':'transcribing',error:undefined})}catch(e){setError(e instanceof Error?e.message:'Retry failed.')}finally{setBusy(false)}}
- async function remove(j:Job){if(!confirm('Delete this episode and its uploaded audio? This cannot be undone.'))return;try{await api('delete',{id:j.id});if(job?.id===j.id){setJob(null);setView('library')}await list();setToast('Episode deleted')}catch(e){setError(e instanceof Error?e.message:'Could not delete episode.')}}
- function markdown(){if(!job?.result)return '';const r=job.result;return `# ${job.title}\n\n## Overview\n${r.summary}\n\n## Themes\n${r.themes.map(t=>'- '+t).join('\n')}\n\n## Takeaways\n${r.takeaways.map(t=>`- ${t.text}\n  Source: "${t.evidence}" (segment ${t.segmentId+1})`).join('\n')}\n\n## Chapters\n${r.chapters.map(c=>`### ${c.title}\n${c.description}\nSource: "${c.evidence}"`).join('\n\n')}\n\n## Quiz\n${r.quiz.map((q,i)=>`${i+1}. ${q.question}\n${q.options.map((o,j)=>`   ${String.fromCharCode(65+j)}. ${o}`).join('\n')}\nAnswer: ${String.fromCharCode(65+q.answer)}. ${q.explanation}\nSource: "${q.evidence}"`).join('\n\n')}\n\n## Transcript\n${job.transcript}\n\nAudio offsets are AI-estimated; supplied transcript timestamps are preserved. Verify against the recording.\n`}
- function download(format:string){if(!job?.result)return;const body=format==='json'?JSON.stringify({title:job.title,transcript:job.transcript,segments:job.segments,result:job.result,revisions:job.revisions},null,2):markdown();const u=URL.createObjectURL(new Blob([body],{type:format==='json'?'application/json':'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=u;a.download='podwise-'+job.id+'.'+format;a.click();URL.revokeObjectURL(u);setToast('Episode exported')}
- function showSource(id:number){setTab('Transcript');setHighlight(id);setTimeout(()=>document.getElementById('segment-'+id)?.scrollIntoView({behavior:'smooth',block:'center'}),50)}
- function seek(s:Segment){if(s.start!==null&&audio.current){audio.current.currentTime=s.start;audio.current.play().catch(()=>setToast('Press play on the audio player to continue.'))}showSource(s.id)}
- const evidence=(s:{segmentId:number;evidence:string})=><button className="evidence" onClick={()=>showSource(s.segmentId)}><FileText size={12}/> “{s.evidence}” <span>Source {s.segmentId+1} <ChevronRight size={12}/></span></button>;
- return <div className="app-shell">{toast&&<div className="toast" role="status"><Check size={17}/>{toast}</div>}<aside className={'sidebar '+(mobile?'mobile-open':'')}><div className="sidebar-top"><button className="logo" onClick={()=>{setView('new');setMobile(false)}}><span className="logo-icon"><AudioLines size={22}/></span>podwise<span className="logo-dot">.</span></button><button className="icon-btn mobile-only" onClick={()=>setMobile(false)} aria-label="Close menu"><X/></button></div><span className="workspace-label">A LITTLE MORE UNDERSTANDING</span><nav className="side-nav"><button className={view==='new'?'active':''} onClick={()=>{setView('new');setMobile(false);setError('')}}><Plus size={19}/> New companion</button><button className={view==='library'?'active':''} onClick={()=>{setView('library');setMobile(false);list();setError('')}}><Headphones size={19}/> Your episodes <span>{jobs.length}</span></button><button className={view==='about'?'active':''} onClick={()=>{setView('about');setMobile(false)}}><BookOpen size={19}/> About this project</button></nav><div className="sidebar-bottom"><div className="project-note"><Shield size={19}/><strong>No account needed</strong><p>Your history is scoped to this browser. Keep your browser data to revisit episodes.</p></div><a className="repo-link" href="https://github.com/abdullahaljubayer-101/podwise" target="_blank" rel="noreferrer">View source on GitHub <ExternalLink size={13}/></a></div></aside>{mobile&&<div className="sidebar-overlay" onClick={()=>setMobile(false)}/>}
- <div className="app-body"><header className="app-top"><div className="breadcrumb"><button className="icon-btn mobile-only" onClick={()=>setMobile(true)} aria-label="Open menu"><Menu/></button><span>Podcast companion</span><ChevronRight size={14}/><b>{view==='new'?'New episode':view==='library'?'Your episodes':view==='about'?'Engineering notes':'Explore episode'}</b></div><span className="demo-pill"><i/>{health?.ready?'AI connected':'Setup pending'}</span></header><main className="app-content">{error&&<div className="error-banner" role="alert"><AlertCircle size={18}/><span>{error}</span><button className="icon-btn" onClick={()=>setError('')} aria-label="Dismiss error"><X size={15}/></button></div>}{health&&!health.ready&&<div className="setup-banner"><Shield size={19}/><div><strong>Backend setup is in progress</strong><p>{health.message} The interface below is connected to the API, but generation will stay disabled until credentials are configured.</p></div></div>}
- {view==='new'?<><div className="page-heading"><div><span className="eyebrow">FROM AUDIO TO INSIGHT</span><h1>Bring your next listen to life.</h1><p className="muted">The main ideas, the moments worth revisiting, and a little learning along the way.</p></div></div><div className="upload-layout"><section className="panel upload-panel"><div className="segment">{['audio','transcript'].map(t=><button className={kind===t?'active':''} disabled={busy} key={t} onClick={()=>{setKind(t);setError('')}}>{t==='audio'?<Headphones size={16}/>:<FileText size={16}/>} {t==='audio'?'Audio recording':'Text transcript'}</button>)}</div>{kind==='audio'?<div className="dropzone" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(!busy)selectFile(e.dataTransfer.files[0])}}><span className="upload-icon"><UploadCloud size={32}/></span><h3>{file?file.name:'A good conversation starts here.'}</h3><p>{file?`${(file.size/1024/1024).toFixed(1)} MB · ${timestamp(duration)}`:'Drop a recording here, or choose a file.'}</p><button className="btn outline" disabled={busy} onClick={()=>input.current?.click()}>{file?'Change recording':'Choose audio file'}</button><input ref={input} type="file" hidden accept=".mp3,.wav,.m4a" onChange={e=>selectFile(e.target.files?.[0])}/><small>MP3, WAV, M4A · Maximum 20 MB and 20 minutes</small></div>:<label className="transcript-input">Your transcript<textarea rows={12} value={text} onChange={e=>setText(e.target.value)} maxLength={60000} placeholder="Paste the full transcript. Optional timestamps: [00:00], [01:15]…" disabled={busy}/><small>{text.length.toLocaleString()} / 60,000 characters · Minimum 100 characters</small><button className="text-btn" onClick={()=>{setText(sample);setTitle('Small Habits: Active Recall');setToast('Original sample transcript loaded. Generate to analyze it with AI.')}}>Use an original sample transcript <ArrowRight size={13}/></button></label>}<label>Episode title<input value={title} onChange={e=>setTitle(e.target.value)} maxLength={160} placeholder="Give your episode a name" disabled={busy}/></label><label className="consent"><input type="checkbox" checked={permission} onChange={e=>setPermission(e.target.checked)}/><span>I own this content or have permission to process it. It contains no confidential information.</span></label><div className="demo-note"><Shield size={16}/><span>Content is sent to Google Gemini for analysis. Free-tier processing may be used to improve Google products. Audio offsets are estimates; untimed text has no invented timestamps.</span></div><button className="btn orange full" disabled={busy||!health?.ready||!permission} onClick={submit}><Sparkles size={17}/>{busy?'Preparing your companion…':'Create episode companion'}<ArrowRight size={17}/></button></section><aside className="upload-aside"><span className="eyebrow">LISTEN. REFLECT. REMEMBER.</span><h2>A companion for curious minds.</h2>{[[Sparkles,'The big picture','A concise overview, main themes, and takeaways.'],[ListMusic,'Chapters with context','Navigate the conversation and inspect its source.'],[BookOpen,'Questions that make it stick','Test your understanding with grounded answers.']].map(([Icon,h,p])=>{const I=Icon as typeof Sparkles;return <div className="benefit" key={String(h)}><I size={21}/><div><h3>{String(h)}</h3><p>{String(p)}</p></div></div>})}<div className="permission"><Clock size={17}/><p>Processing time depends on recording length and the free API quota. Close and revisit an episode to resume saved stages.</p></div></aside></div></>:
- view==='library'?<><div className="page-heading"><div><span className="eyebrow">YOUR LISTENING SPACE</span><h1>Keep the ideas close.</h1><p className="muted">Episodes from this browser in the last 24 hours. No sign-in needed.</p></div><button className="btn orange" onClick={()=>setView('new')}><Plus size={17}/> New episode</button></div><div className="library-toolbar"><span className="muted">{jobs.length} saved episodes</span><div className="search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search episodes…" aria-label="Search episodes"/></div></div><div className="history-list">{jobs.filter(j=>j.title.toLowerCase().includes(query.toLowerCase())).map(j=><article className="history-row" key={j.id}><span className={'history-icon '+(j.kind==='audio'?'sage':'peach')}>{j.kind==='audio'?<Headphones size={23}/>:<FileText size={23}/>}</span><button onClick={()=>open(j)}><h3>{j.title}</h3><span>{labels[j.status]||j.status} · {new Date(j.created_at).toLocaleString()}</span></button><button className="icon-btn" aria-label={'Delete '+j.title} onClick={()=>remove(j)}><Trash2 size={17}/></button><button className="icon-btn" aria-label={'Open '+j.title} onClick={()=>open(j)}><ChevronRight size={18}/></button></article>)}</div>{jobs.length===0&&<div className="empty"><Headphones size={38}/><h3>Your next good idea belongs here.</h3><p>Create your first episode companion to start your history.</p><button className="btn orange" onClick={()=>setView('new')}>Add an episode</button></div>}</>:
- view==='about'?<section className="panel about-panel"><span className="eyebrow">THEALON AI ENGINEERING CHALLENGE</span><h1>From audio to insight.</h1><p>Podwise helps learners and curious listeners identify ideas, revisit source passages, and test their understanding. It uses actual Gemini analysis rather than canned results.</p><h2>How it works</h2><p>Next.js accepts validated input. Audio uploads directly to private Supabase Storage. Supabase Edge Functions process bounded transcription and analysis stages while Postgres stores progress and results. Browser polling resumes the next saved stage. No Inngest dependency is required.</p><h2>Privacy without accounts</h2><p>A random browser capability controls access to this browser’s episodes. Clearing local browser data loses that access. Database tables and audio are not public. Never upload confidential material; this is a limited free evaluation project.</p><h2>Reliability & limits</h2><p>Evidence quotes and segment references are checked against the transcript. Audio time offsets are AI estimates and can drift. Untimed text chapters link to passages rather than invented times. Summaries can still be imperfect—check the source. Input, rate, retry and revision limits prevent uncontrolled free-quota use.</p><h2>Free services</h2><p>No billing or paid fallback is enabled. Quota exhaustion stops processing with a clear error. History access lasts 24 hours; the project owner must perform periodic database/storage retention cleanup.</p><a className="btn dark" href="https://github.com/abdullahaljubayer-101/podwise" target="_blank" rel="noreferrer">Research, architecture & setup notes <ExternalLink size={15}/></a></section>:
- job?<><div className="episode-heading"><span className={'history-icon '+(job.kind==='audio'?'sage':'peach')}>{job.kind==='audio'?<Headphones size={27}/>:<FileText size={27}/>}</span><div><span className="eyebrow">{job.kind==='audio'?'AUDIO EPISODE':'TRANSCRIPT EPISODE'}</span><h1>{job.title}</h1><div className="detail-meta"><span>{labels[job.status]}</span><span>{job.duration_seconds?timestamp(job.duration_seconds):'Source-based chapters'}</span></div></div>{job.result&&<div className="episode-actions"><button className="btn outline" onClick={async()=>{try{await navigator.clipboard.writeText(markdown());setToast('Episode notes copied')}catch{setError('Clipboard unavailable. Download the notes instead.')}}}><Copy size={15}/> Copy</button><button className="btn dark" onClick={()=>download('md')}><Download size={15}/> Notes</button><button className="btn outline" onClick={()=>download('json')}>JSON</button><button className="btn outline" onClick={()=>window.print()}>Print / PDF</button></div>}</div>{job.error&&<div className="error-banner" role="alert"><AlertCircle size={18}/><span>{job.error}</span></div>}{audioUrl&&<div className="native-audio"><audio ref={audio} controls src={audioUrl} onError={()=>{setAudioUrl('');setToast('Audio link expired. Reopen the episode to refresh playback.')}}/><small>Audio timestamps are AI-estimated. Verify chapter positions against the recording.</small></div>}{job.status!=='completed'&&job.status!=='failed'&&<div className="processing-card" role="status"><span className="processing-spinner"/><div><h3>{labels[job.status]}</h3><p>Your source and progress are saved. This stage may take up to two minutes.</p></div></div>}{['failed','awaiting_upload'].includes(job.status)&&<button className="btn orange" disabled={busy} onClick={retry}><RotateCcw size={17}/> Retry saved stage</button>}{job.result&&<><div className="result-tabs">{['Overview','Chapters','Transcript','Quiz','Revisions'].map(t=><button key={t} className={tab===t?'active':''} onClick={()=>setTab(t)}>{t==='Overview'?<Sparkles size={16}/>:t==='Chapters'?<ListMusic size={16}/>:t==='Transcript'?<FileText size={16}/>:<BookOpen size={16}/>} {t}</button>)}</div><div className="results-layout"><section className="panel result-panel">{tab==='Overview'?<><div className="panel-heading"><h2>The big picture</h2><span className="tag">SOURCE-GROUNDED</span></div><p className="summary">{job.result.summary}</p><div className="theme-chips">{job.result.themes.map(t=><span key={t}>{t}</span>)}</div><h3 className="takeaway-title">Ideas worth keeping</h3>{job.result.takeaways.map((t,i)=><article className="real-takeaway" key={i}><div><span>0{i+1}</span><h3>{t.text}</h3></div>{evidence(t)}</article>)}</>:tab==='Chapters'?<><h2>A map of the conversation</h2><p className="muted">{job.kind==='audio'?'Offsets are AI-estimated and may drift. Verify against the audio.':'Supplied timestamps are preserved. Untimed chapters navigate the text only.'}</p><div className="chapters">{job.result.chapters.map((c,i)=>{const s=job.segments?.[c.segmentId];return <article className="chapter" key={i}><button onClick={()=>s&&seek(s)}><span className="timestamp">{s?.start!==null&&s?.start!==undefined?timestamp(s.start):`§ ${c.segmentId+1}`}</span><div><h3>{c.title}</h3><p>{c.description}</p></div><ChevronRight size={16}/></button>{evidence(c)}</article>})}</div></>:tab==='Transcript'?<><h2>Back to the source.</h2>{job.segments?.map(s=><div className={'transcript-line '+(highlight===s.id?'highlight':'')} key={s.id} id={'segment-'+s.id}><button className="timestamp" onClick={()=>seek(s)}>{s.start===null?`§ ${s.id+1}`:timestamp(s.start)}</button><p>{s.text}</p></div>)}</>:tab==='Quiz'?<><div className="panel-heading"><h2>Let the ideas sink in.</h2><span className="tag">{job.result.quiz.length} QUESTIONS</span></div><p className="muted">Choose an answer for every question, then check your understanding.</p>{job.result.quiz.map((q,i)=><div className="question" key={i}><h3><span>0{i+1}</span>{q.question}</h3>{q.options.map((o,j)=><button disabled={checked} className={'answer '+(answers[i]===j?'chosen ':'')+(checked&&j===q.answer?'correct ':checked&&answers[i]===j?'incorrect':'')} key={j} onClick={()=>setAnswers({...answers,[i]:j})}><span>{String.fromCharCode(65+j)}</span>{o}{checked&&j===q.answer&&<Check size={16}/>}</button>)}{checked&&<><p className="explanation">{q.explanation}</p>{evidence(q)}</>}</div>)}<button className="btn orange" disabled={!checked&&Object.keys(answers).length!==job.result.quiz.length} onClick={()=>{if(checked){setChecked(false);setAnswers({})}else setChecked(true)}}>{checked?'Try again':'Check my answers'} <ArrowRight size={16}/></button>{checked&&<span className="quiz-score">{job.result.quiz.filter((q,i)=>answers[i]===q.answer).length} / {job.result.quiz.length} correct</span>}</>:<><h2>Your revision trail</h2>{job.revisions?.length?job.revisions.map((r,i)=><article className="revision-entry" key={i}><span className="tag">{r.target}</span><p>{r.instruction}</p><small>{new Date(r.at).toLocaleString()}</small></article>):<p className="muted">No revisions yet. Ask for a change using the panel.</p>}</>}</section><aside className="revision-panel"><span className="revision-icon"><Sparkles size={24}/></span><h3>Make it yours.</h3><p>Change one part while keeping the rest of your companion.</p><label>What should change?<select value={target} onChange={e=>setTarget(e.target.value)}><option value="overview">Overview & takeaways</option><option value="quiz">Quiz questions</option></select></label><div className="revision-options"><button disabled={busy||job.status!=='completed'} onClick={()=>revise(target==='quiz'?'Make the questions more challenging, using only the source.':'Make the overview shorter and focus on the most important points.')}>{target==='quiz'?'More challenging':'Make it shorter'} <ChevronRight size={14}/></button><button disabled={busy||job.status!=='completed'} onClick={()=>revise('Explain this in simpler language, using only the source.')}>Explain it simply <ChevronRight size={14}/></button></div><label>Your request<textarea value={instruction} onChange={e=>setInstruction(e.target.value)} maxLength={500} rows={4} placeholder="e.g. Focus on practical advice…"/></label><button className="btn dark full" disabled={busy||job.status!=='completed'||instruction.trim().length<3} onClick={()=>revise()}>Apply revision <Sparkles size={15}/></button><small>Reuses your saved transcript. Only the selected section is replaced.</small><div className="source-note"><Shield size={17}/><p>Exact evidence is verified against the transcript. Always check the source before relying on an AI interpretation.</p></div></aside></div></>}{job.segments&&!job.result&&<section className="panel pending-source"><h2>Your saved transcript</h2><p className="transcript-text">{job.transcript}</p></section>}</>:null}<div className="app-footer"><span><AudioLines size={14}/> From a long listen to a lasting idea.</span><span>Podwise · Thealon challenge</span></div></main></div></div>}
+"use client";
+import { useEffect, useRef, useState } from "react";
+import {
+  AudioLines,
+  ArrowRight,
+  Plus,
+  Search,
+  UploadCloud,
+  FileText,
+  Headphones,
+  Check,
+  Download,
+  Copy,
+  Sparkles,
+  BookOpen,
+  ListMusic,
+  Menu,
+  X,
+  Trash2,
+  RotateCcw,
+  Shield,
+  AlertCircle,
+  ChevronRight,
+  Clock,
+  ExternalLink,
+} from "lucide-react";
+import type {
+  Analysis,
+  Segment,
+} from "../supabase/functions/podwise-worker/core";
+type Job = {
+  id: string;
+  title: string;
+  status: string;
+  kind: string;
+  created_at: string;
+  duration_seconds: number | null;
+  transcript?: string;
+  segments?: Segment[];
+  result?: Analysis;
+  error?: string;
+  revisions?: { at: string; target: string; instruction: string }[];
+};
+const sample = `[00:00] Welcome to Small Habits, a podcast about practical learning. Today we are discussing active recall. Active recall means trying to retrieve information from memory before looking at the answer. It differs from rereading because the learner has to produce an answer rather than recognize familiar words.\n[01:15] A simple method is to close your notes after a short reading session and write down three things you remember. Then reopen your notes and check what was accurate and what was missing. The purpose of checking is to correct mistakes, not to give yourself a perfect score.\n[02:30] Spaced practice means returning to material across separate sessions instead of concentrating all study into a single session. The example in this episode is reviewing a topic the next day, then again a few days later. The exact schedule should adapt to what you remember.\n[03:45] Combine these approaches by recalling before rereading at each review session. Keep the questions focused on the material you actually studied. Start with a five-minute session so the routine is easy to repeat. This recording does not prescribe one universal schedule or promise a guaranteed exam result.\n[05:00] The main takeaway is simple: retrieve, check, and revisit. Retrieval makes gaps visible, checking helps repair those gaps, and revisiting gives you another chance to practice. You can begin with one topic today.`;
+const labels: Record<string, string> = {
+  awaiting_upload: "Waiting for upload",
+  queued: "Preparing transcription",
+  transcribing: "Transcribing audio",
+  awaiting_analysis: "Transcript ready",
+  analyzing: "Finding ideas & questions",
+  revising: "Applying your revision",
+  completed: "Ready to explore",
+  failed: "Needs another try",
+};
+const timestamp = (seconds: number) =>
+  `${Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0")}:${Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, "0")}`;
+export default function App() {
+  const [session, setSession] = useState(""),
+    [health, setHealth] = useState<{ ready: boolean; message: string } | null>(
+      null,
+    ),
+    [jobs, setJobs] = useState<Job[]>([]),
+    [job, setJob] = useState<Job | null>(null),
+    [view, setView] = useState("new"),
+    [tab, setTab] = useState("Overview"),
+    [kind, setKind] = useState("audio"),
+    [file, setFile] = useState<File | null>(null),
+    [duration, setDuration] = useState(0),
+    [text, setText] = useState(""),
+    [title, setTitle] = useState(""),
+    [permission, setPermission] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [toast, setToast] = useState(""),
+    [query, setQuery] = useState(""),
+    [mobile, setMobile] = useState(false),
+    [audioUrl, setAudioUrl] = useState(""),
+    [target, setTarget] = useState("overview"),
+    [instruction, setInstruction] = useState(""),
+    [answers, setAnswers] = useState<Record<number, number>>({}),
+    [checked, setChecked] = useState(false),
+    [highlight, setHighlight] = useState<number | null>(null);
+  const audio = useRef<HTMLAudioElement>(null),
+    input = useRef<HTMLInputElement>(null),
+    resume = useRef(false),
+    fileGeneration = useRef(0);
+  useEffect(() => {
+    let s = localStorage.getItem("podwise-session-v2");
+    if (!s) {
+      s = crypto.randomUUID() + crypto.randomUUID();
+      localStorage.setItem("podwise-session-v2", s);
+    }
+    setSession(s);
+    fetch("/api?health=1")
+      .then((r) => r.json())
+      .then(setHealth)
+      .catch(() =>
+        setHealth({
+          ready: false,
+          message: "Cannot reach the application server.",
+        }),
+      );
+  }, []);
+  async function api(action: string, body: Record<string, unknown> = {}) {
+    const r = await fetch("/api", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-podwise-session": session,
+      },
+      body: JSON.stringify({ action, ...body }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw Error(d.error || "Request failed.");
+    return d;
+  }
+  async function list() {
+    if (!session || !health?.ready) return;
+    const r = await fetch("/api", {
+      headers: { "x-podwise-session": session },
+      cache: "no-store",
+    });
+    const d = await r.json();
+    if (r.ok) setJobs(d);
+    else setError(d.error);
+  }
+  useEffect(() => {
+    if (session && health?.ready) list();
+  }, [session, health?.ready]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  useEffect(() => {
+    if (!job?.id || !session) return;
+    let stopped = false;
+    let running = false;
+    const load = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const r = await fetch("/api?id=" + job.id, {
+          headers: { "x-podwise-session": session },
+          cache: "no-store",
+        });
+        const d = await r.json();
+        if (!r.ok) throw Error(d.error);
+        if (stopped) return;
+        setJob(d);
+        if (d.status === "awaiting_analysis" && !resume.current) {
+          resume.current = true;
+          try {
+            await api("resume", { id: d.id });
+          } finally {
+            resume.current = false;
+          }
+        }
+        if (d.status === "completed" || d.status === "failed") {
+          clearInterval(timer);
+          list();
+        }
+      } catch (e) {
+        if (!stopped)
+          setError(
+            e instanceof Error ? e.message : "Could not refresh the episode.",
+          );
+      } finally {
+        running = false;
+      }
+    };
+    load();
+    const timer = setInterval(load, 3000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [job?.id, session, job?.status]);
+  useEffect(() => {
+    setAnswers({});
+    setChecked(false);
+  }, [job?.result?.quiz]);
+  useEffect(() => {
+    return () => {
+      if (audioUrl.startsWith("blob:")) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
+  const open = async (j: Job) => {
+    setJob(j);
+    setView("episode");
+    setTab("Overview");
+    setError("");
+    setMobile(false);
+    setAudioUrl("");
+    if (j.kind === "audio" && j.status === "completed") {
+      try {
+        const d = await api("audio", { id: j.id });
+        setAudioUrl(d.url);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Audio unavailable");
+      }
+    }
+  };
+  const selectFile = (f?: File) => {
+    if (!f) return;
+    const n = ++fileGeneration.current;
+    if (!/\.(mp3|wav|m4a)$/i.test(f.name)) {
+      setError("Choose an MP3, WAV, or M4A file.");
+      return;
+    }
+    if (f.size > 20 * 1024 * 1024) {
+      setError("Choose an audio file under 20 MB.");
+      return;
+    }
+    setError("");
+    setFile(null);
+    setDuration(0);
+    const u = URL.createObjectURL(f),
+      a = new Audio(u);
+    a.onloadedmetadata = () => {
+      URL.revokeObjectURL(u);
+      if (n !== fileGeneration.current) return;
+      if (!Number.isFinite(a.duration) || a.duration < 1 || a.duration > 1200) {
+        setError("Use a recording between 1 second and 20 minutes.");
+        return;
+      }
+      setFile(f);
+      setDuration(a.duration);
+      setTitle(f.name.replace(/\.[^.]+$/, ""));
+    };
+    a.onerror = () => {
+      URL.revokeObjectURL(u);
+      if (n === fileGeneration.current)
+        setError(
+          "This browser cannot decode the audio. Convert it to MP3 or WAV.",
+        );
+    };
+  };
+  async function submit() {
+    setBusy(true);
+    setError("");
+    try {
+      if (!permission)
+        throw Error(
+          "Confirm that you have permission to process this content.",
+        );
+      if (kind === "audio" && !file)
+        throw Error("Choose a valid audio file first.");
+      if (
+        kind === "transcript" &&
+        (text.trim().length < 100 || text.length > 60000)
+      )
+        throw Error("Use a transcript of 100–60,000 characters.");
+      const mime = file?.name.toLowerCase().endsWith(".mp3")
+        ? "audio/mpeg"
+        : file?.name.toLowerCase().endsWith(".wav")
+          ? "audio/wav"
+          : "audio/mp4";
+      const d = await api("create", {
+        kind,
+        title: title || "Untitled episode",
+        permission,
+        transcript: kind === "transcript" ? text : undefined,
+        size: file?.size,
+        mime,
+        duration,
+      });
+      setJob({
+        id: d.id,
+        title: title || "Untitled episode",
+        kind,
+        status: kind === "audio" ? "awaiting_upload" : "analyzing",
+        created_at: new Date().toISOString(),
+        duration_seconds: duration,
+      });
+      setView("episode");
+      setTab("Overview");
+      if (kind === "audio" && file) {
+        const r = await fetch(d.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": mime, "x-upsert": "false" },
+          body: file,
+        });
+        if (!r.ok)
+          throw Error(
+            "Audio upload failed. Delete this incomplete episode and try again.",
+          );
+        await api("start", { id: d.id });
+        setJob((j) => (j ? { ...j, status: "transcribing" } : j));
+        setAudioUrl(URL.createObjectURL(file));
+      }
+      await list();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Processing could not start.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function revise(request = instruction) {
+    if (!job) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("revise", { id: job.id, target, instruction: request });
+      setJob({ ...job, status: "revising", error: undefined });
+      setInstruction("");
+      if (target === "quiz") {
+        setTab("Quiz");
+        setAnswers({});
+        setChecked(false);
+      } else setTab("Overview");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Revision failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function retry() {
+    if (!job) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("retry", { id: job.id });
+      setJob({
+        ...job,
+        status: job.transcript ? "analyzing" : "transcribing",
+        error: undefined,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Retry failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(j: Job) {
+    if (
+      !confirm(
+        "Delete this episode and its uploaded audio? This cannot be undone.",
+      )
+    )
+      return;
+    try {
+      await api("delete", { id: j.id });
+      if (job?.id === j.id) {
+        setJob(null);
+        setView("library");
+      }
+      await list();
+      setToast("Episode deleted");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete episode.");
+    }
+  }
+  function markdown() {
+    if (!job?.result) return "";
+    const r = job.result;
+    return `# ${job.title}\n\n## Overview\n${r.summary}\n\n## Themes\n${r.themes.map((t) => "- " + t).join("\n")}\n\n## Takeaways\n${r.takeaways.map((t) => `- ${t.text}\n  Source: "${t.evidence}" (segment ${t.segmentId + 1})`).join("\n")}\n\n## Chapters\n${r.chapters.map((c) => `### ${c.title}\n${c.description}\nSource: "${c.evidence}"`).join("\n\n")}\n\n## Quiz\n${r.quiz.map((q, i) => `${i + 1}. ${q.question}\n${q.options.map((o, j) => `   ${String.fromCharCode(65 + j)}. ${o}`).join("\n")}\nAnswer: ${String.fromCharCode(65 + q.answer)}. ${q.explanation}\nSource: "${q.evidence}"`).join("\n\n")}\n\n## Transcript\n${job.transcript}\n\nAudio offsets are AI-estimated; supplied transcript timestamps are preserved. Verify against the recording.\n`;
+  }
+  function download(format: string) {
+    if (!job?.result) return;
+    const body =
+      format === "json"
+        ? JSON.stringify(
+            {
+              title: job.title,
+              transcript: job.transcript,
+              segments: job.segments,
+              result: job.result,
+              revisions: job.revisions,
+            },
+            null,
+            2,
+          )
+        : markdown();
+    const u = URL.createObjectURL(
+      new Blob([body], {
+        type:
+          format === "json"
+            ? "application/json"
+            : "text/markdown;charset=utf-8",
+      }),
+    );
+    const a = document.createElement("a");
+    a.href = u;
+    a.download = "podwise-" + job.id + "." + format;
+    a.click();
+    URL.revokeObjectURL(u);
+    setToast("Episode exported");
+  }
+  function showSource(id: number) {
+    setTab("Transcript");
+    setHighlight(id);
+    setTimeout(
+      () =>
+        document
+          .getElementById("segment-" + id)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      50,
+    );
+  }
+  function seek(s: Segment) {
+    if (s.start !== null && audio.current) {
+      audio.current.currentTime = s.start;
+      audio.current
+        .play()
+        .catch(() => setToast("Press play on the audio player to continue."));
+    }
+    showSource(s.id);
+  }
+  const evidence = (s: { segmentId: number; evidence: string }) => (
+    <button className="evidence" onClick={() => showSource(s.segmentId)}>
+      <FileText size={12} /> “{s.evidence}”{" "}
+      <span>
+        Source {s.segmentId + 1} <ChevronRight size={12} />
+      </span>
+    </button>
+  );
+  return (
+    <div className="app-shell">
+      {toast && (
+        <div className="toast" role="status">
+          <Check size={17} />
+          {toast}
+        </div>
+      )}
+      <aside className={"sidebar " + (mobile ? "mobile-open" : "")}>
+        <div className="sidebar-top">
+          <button
+            className="logo"
+            onClick={() => {
+              setView("new");
+              setMobile(false);
+            }}
+          >
+            <span className="logo-icon">
+              <AudioLines size={22} />
+            </span>
+            podwise<span className="logo-dot">.</span>
+          </button>
+          <button
+            className="icon-btn mobile-only"
+            onClick={() => setMobile(false)}
+            aria-label="Close menu"
+          >
+            <X />
+          </button>
+        </div>
+        <span className="workspace-label">A LITTLE MORE UNDERSTANDING</span>
+        <nav className="side-nav">
+          <button
+            className={view === "new" ? "active" : ""}
+            onClick={() => {
+              setView("new");
+              setMobile(false);
+              setError("");
+            }}
+          >
+            <Plus size={19} /> New companion
+          </button>
+          <button
+            className={view === "library" ? "active" : ""}
+            onClick={() => {
+              setView("library");
+              setMobile(false);
+              list();
+              setError("");
+            }}
+          >
+            <Headphones size={19} /> Your episodes <span>{jobs.length}</span>
+          </button>
+          <button
+            className={view === "about" ? "active" : ""}
+            onClick={() => {
+              setView("about");
+              setMobile(false);
+            }}
+          >
+            <BookOpen size={19} /> About this project
+          </button>
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="project-note">
+            <Shield size={19} />
+            <strong>No account needed</strong>
+            <p>
+              Your history is scoped to this browser. Keep your browser data to
+              revisit episodes.
+            </p>
+          </div>
+          <a
+            className="repo-link"
+            href="https://github.com/abdullahaljubayer-101/podwise"
+            target="_blank"
+            rel="noreferrer"
+          >
+            View source on GitHub <ExternalLink size={13} />
+          </a>
+        </div>
+      </aside>
+      {mobile && (
+        <div className="sidebar-overlay" onClick={() => setMobile(false)} />
+      )}
+      <div className="app-body">
+        <header className="app-top">
+          <div className="breadcrumb">
+            <button
+              className="icon-btn mobile-only"
+              onClick={() => setMobile(true)}
+              aria-label="Open menu"
+            >
+              <Menu />
+            </button>
+            <span>Podcast companion</span>
+            <ChevronRight size={14} />
+            <b>
+              {view === "new"
+                ? "New episode"
+                : view === "library"
+                  ? "Your episodes"
+                  : view === "about"
+                    ? "Engineering notes"
+                    : "Explore episode"}
+            </b>
+          </div>
+          <span className="demo-pill">
+            <i />
+            {health?.ready ? "AI connected" : "Setup pending"}
+          </span>
+        </header>
+        <main className="app-content">
+          {error && (
+            <div className="error-banner" role="alert">
+              <AlertCircle size={18} />
+              <span>{error}</span>
+              <button
+                className="icon-btn"
+                onClick={() => setError("")}
+                aria-label="Dismiss error"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
+          {health && !health.ready && (
+            <div className="setup-banner">
+              <Shield size={19} />
+              <div>
+                <strong>Backend setup is in progress</strong>
+                <p>
+                  {health.message} The interface below is connected to the API,
+                  but generation will stay disabled until credentials are
+                  configured.
+                </p>
+              </div>
+            </div>
+          )}
+          {view === "new" ? (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">FROM AUDIO TO INSIGHT</span>
+                  <h1>Bring your next listen to life.</h1>
+                  <p className="muted">
+                    The main ideas, the moments worth revisiting, and a little
+                    learning along the way.
+                  </p>
+                </div>
+              </div>
+              <div className="upload-layout">
+                <section className="panel upload-panel">
+                  <div className="segment">
+                    {["audio", "transcript"].map((t) => (
+                      <button
+                        className={kind === t ? "active" : ""}
+                        disabled={busy}
+                        key={t}
+                        onClick={() => {
+                          setKind(t);
+                          setError("");
+                        }}
+                      >
+                        {t === "audio" ? (
+                          <Headphones size={16} />
+                        ) : (
+                          <FileText size={16} />
+                        )}{" "}
+                        {t === "audio" ? "Audio recording" : "Text transcript"}
+                      </button>
+                    ))}
+                  </div>
+                  {kind === "audio" ? (
+                    <div
+                      className="dropzone"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (!busy) selectFile(e.dataTransfer.files[0]);
+                      }}
+                    >
+                      <span className="upload-icon">
+                        <UploadCloud size={32} />
+                      </span>
+                      <h3>
+                        {file ? file.name : "A good conversation starts here."}
+                      </h3>
+                      <p>
+                        {file
+                          ? `${(file.size / 1024 / 1024).toFixed(1)} MB · ${timestamp(duration)}`
+                          : "Drop a recording here, or choose a file."}
+                      </p>
+                      <button
+                        className="btn outline"
+                        disabled={busy}
+                        onClick={() => input.current?.click()}
+                      >
+                        {file ? "Change recording" : "Choose audio file"}
+                      </button>
+                      <input
+                        ref={input}
+                        type="file"
+                        hidden
+                        accept=".mp3,.wav,.m4a"
+                        onChange={(e) => selectFile(e.target.files?.[0])}
+                      />
+                      <small>
+                        MP3, WAV, M4A · Maximum 20 MB and 20 minutes
+                      </small>
+                    </div>
+                  ) : (
+                    <label className="transcript-input">
+                      Your transcript
+                      <textarea
+                        rows={12}
+                        value={text}
+                        onChange={(e) => setText(e.target.value)}
+                        maxLength={60000}
+                        placeholder="Paste the full transcript. Optional timestamps: [00:00], [01:15]…"
+                        disabled={busy}
+                      />
+                      <small>
+                        {text.length.toLocaleString()} / 60,000 characters ·
+                        Minimum 100 characters
+                      </small>
+                      <button
+                        className="text-btn"
+                        onClick={() => {
+                          setText(sample);
+                          setTitle("Small Habits: Active Recall");
+                          setToast(
+                            "Original sample transcript loaded. Generate to analyze it with AI.",
+                          );
+                        }}
+                      >
+                        Use an original sample transcript{" "}
+                        <ArrowRight size={13} />
+                      </button>
+                    </label>
+                  )}
+                  <label>
+                    Episode title
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      maxLength={160}
+                      placeholder="Give your episode a name"
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="consent">
+                    <input
+                      type="checkbox"
+                      checked={permission}
+                      onChange={(e) => setPermission(e.target.checked)}
+                    />
+                    <span>
+                      I own this content or have permission to process it. It
+                      contains no confidential information.
+                    </span>
+                  </label>
+                  <div className="demo-note">
+                    <Shield size={16} />
+                    <span>
+                      Content is sent to Google Gemini for analysis. Free-tier
+                      processing may be used to improve Google products. Audio
+                      offsets are estimates; untimed text has no invented
+                      timestamps.
+                    </span>
+                  </div>
+                  <button
+                    className="btn orange full"
+                    disabled={busy || !health?.ready || !permission}
+                    onClick={submit}
+                  >
+                    <Sparkles size={17} />
+                    {busy
+                      ? "Preparing your companion…"
+                      : "Create episode companion"}
+                    <ArrowRight size={17} />
+                  </button>
+                </section>
+                <aside className="upload-aside">
+                  <span className="eyebrow">LISTEN. REFLECT. REMEMBER.</span>
+                  <h2>A companion for curious minds.</h2>
+                  {[
+                    [
+                      Sparkles,
+                      "The big picture",
+                      "A concise overview, main themes, and takeaways.",
+                    ],
+                    [
+                      ListMusic,
+                      "Chapters with context",
+                      "Navigate the conversation and inspect its source.",
+                    ],
+                    [
+                      BookOpen,
+                      "Questions that make it stick",
+                      "Test your understanding with grounded answers.",
+                    ],
+                  ].map(([Icon, h, p]) => {
+                    const I = Icon as typeof Sparkles;
+                    return (
+                      <div className="benefit" key={String(h)}>
+                        <I size={21} />
+                        <div>
+                          <h3>{String(h)}</h3>
+                          <p>{String(p)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="permission">
+                    <Clock size={17} />
+                    <p>
+                      Processing time depends on recording length and the free
+                      API quota. Close and revisit an episode to resume saved
+                      stages.
+                    </p>
+                  </div>
+                </aside>
+              </div>
+            </>
+          ) : view === "library" ? (
+            <>
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">YOUR LISTENING SPACE</span>
+                  <h1>Keep the ideas close.</h1>
+                  <p className="muted">
+                    Episodes from this browser in the last 24 hours. No sign-in
+                    needed.
+                  </p>
+                </div>
+                <button className="btn orange" onClick={() => setView("new")}>
+                  <Plus size={17} /> New episode
+                </button>
+              </div>
+              <div className="library-toolbar">
+                <span className="muted">{jobs.length} saved episodes</span>
+                <div className="search">
+                  <Search size={16} />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search episodes…"
+                    aria-label="Search episodes"
+                  />
+                </div>
+              </div>
+              <div className="history-list">
+                {jobs
+                  .filter((j) =>
+                    j.title.toLowerCase().includes(query.toLowerCase()),
+                  )
+                  .map((j) => (
+                    <article className="history-row" key={j.id}>
+                      <span
+                        className={
+                          "history-icon " +
+                          (j.kind === "audio" ? "sage" : "peach")
+                        }
+                      >
+                        {j.kind === "audio" ? (
+                          <Headphones size={23} />
+                        ) : (
+                          <FileText size={23} />
+                        )}
+                      </span>
+                      <button onClick={() => open(j)}>
+                        <h3>{j.title}</h3>
+                        <span>
+                          {labels[j.status] || j.status} ·{" "}
+                          {new Date(j.created_at).toLocaleString()}
+                        </span>
+                      </button>
+                      <button
+                        className="icon-btn"
+                        aria-label={"Delete " + j.title}
+                        onClick={() => remove(j)}
+                      >
+                        <Trash2 size={17} />
+                      </button>
+                      <button
+                        className="icon-btn"
+                        aria-label={"Open " + j.title}
+                        onClick={() => open(j)}
+                      >
+                        <ChevronRight size={18} />
+                      </button>
+                    </article>
+                  ))}
+              </div>
+              {jobs.length === 0 && (
+                <div className="empty">
+                  <Headphones size={38} />
+                  <h3>Your next good idea belongs here.</h3>
+                  <p>
+                    Create your first episode companion to start your history.
+                  </p>
+                  <button className="btn orange" onClick={() => setView("new")}>
+                    Add an episode
+                  </button>
+                </div>
+              )}
+            </>
+          ) : view === "about" ? (
+            <section className="panel about-panel">
+              <span className="eyebrow">THEALON AI ENGINEERING CHALLENGE</span>
+              <h1>From audio to insight.</h1>
+              <p>
+                Podwise helps learners and curious listeners identify ideas,
+                revisit source passages, and test their understanding. It uses
+                actual Gemini analysis rather than canned results.
+              </p>
+              <h2>How it works</h2>
+              <p>
+                Next.js accepts validated input. Audio uploads directly to
+                private Supabase Storage. Supabase Edge Functions process
+                bounded transcription and analysis stages while Postgres stores
+                progress and results. Browser polling resumes the next saved
+                stage. No Inngest dependency is required.
+              </p>
+              <h2>Privacy without accounts</h2>
+              <p>
+                A random browser capability controls access to this browser’s
+                episodes. Clearing local browser data loses that access.
+                Database tables and audio are not public. Never upload
+                confidential material; this is a limited free evaluation
+                project.
+              </p>
+              <h2>Reliability & limits</h2>
+              <p>
+                Evidence quotes and segment references are checked against the
+                transcript. Audio time offsets are AI estimates and can drift.
+                Untimed text chapters link to passages rather than invented
+                times. Summaries can still be imperfect—check the source. Input,
+                rate, retry and revision limits prevent uncontrolled free-quota
+                use.
+              </p>
+              <h2>Free services</h2>
+              <p>
+                No billing or paid fallback is enabled. Quota exhaustion stops
+                processing with a clear error. History access lasts 24 hours;
+                the project owner must perform periodic database/storage
+                retention cleanup.
+              </p>
+              <a
+                className="btn dark"
+                href="https://github.com/abdullahaljubayer-101/podwise"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Research, architecture & setup notes <ExternalLink size={15} />
+              </a>
+            </section>
+          ) : job ? (
+            <>
+              <div className="episode-heading">
+                <span
+                  className={
+                    "history-icon " + (job.kind === "audio" ? "sage" : "peach")
+                  }
+                >
+                  {job.kind === "audio" ? (
+                    <Headphones size={27} />
+                  ) : (
+                    <FileText size={27} />
+                  )}
+                </span>
+                <div>
+                  <span className="eyebrow">
+                    {job.kind === "audio"
+                      ? "AUDIO EPISODE"
+                      : "TRANSCRIPT EPISODE"}
+                  </span>
+                  <h1>{job.title}</h1>
+                  <div className="detail-meta">
+                    <span>{labels[job.status]}</span>
+                    <span>
+                      {job.duration_seconds
+                        ? timestamp(job.duration_seconds)
+                        : "Source-based chapters"}
+                    </span>
+                  </div>
+                </div>
+                {job.result && (
+                  <div className="episode-actions">
+                    <button
+                      className="btn outline"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(markdown());
+                          setToast("Episode notes copied");
+                        } catch {
+                          setError(
+                            "Clipboard unavailable. Download the notes instead.",
+                          );
+                        }
+                      }}
+                    >
+                      <Copy size={15} /> Copy
+                    </button>
+                    <button className="btn dark" onClick={() => download("md")}>
+                      <Download size={15} /> Notes
+                    </button>
+                    <button
+                      className="btn outline"
+                      onClick={() => download("json")}
+                    >
+                      JSON
+                    </button>
+                    <button
+                      className="btn outline"
+                      onClick={() => window.print()}
+                    >
+                      Print / PDF
+                    </button>
+                  </div>
+                )}
+              </div>
+              {job.error && (
+                <div className="error-banner" role="alert">
+                  <AlertCircle size={18} />
+                  <span>{job.error}</span>
+                </div>
+              )}
+              {audioUrl && (
+                <div className="native-audio">
+                  <audio
+                    ref={audio}
+                    controls
+                    src={audioUrl}
+                    onError={() => {
+                      setAudioUrl("");
+                      setToast(
+                        "Audio link expired. Reopen the episode to refresh playback.",
+                      );
+                    }}
+                  />
+                  <small>
+                    Audio timestamps are AI-estimated. Verify chapter positions
+                    against the recording.
+                  </small>
+                </div>
+              )}
+              {job.status !== "completed" && job.status !== "failed" && (
+                <div className="processing-card" role="status">
+                  <span className="processing-spinner" />
+                  <div>
+                    <h3>{labels[job.status]}</h3>
+                    <p>
+                      Your source and progress are saved. This stage may take up
+                      to two minutes.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {["failed", "awaiting_upload"].includes(job.status) && (
+                <button className="btn orange" disabled={busy} onClick={retry}>
+                  <RotateCcw size={17} /> Retry saved stage
+                </button>
+              )}
+              {job.result && (
+                <>
+                  <div className="result-tabs">
+                    {[
+                      "Overview",
+                      "Chapters",
+                      "Transcript",
+                      "Quiz",
+                      "Revisions",
+                    ].map((t) => (
+                      <button
+                        key={t}
+                        className={tab === t ? "active" : ""}
+                        onClick={() => setTab(t)}
+                      >
+                        {t === "Overview" ? (
+                          <Sparkles size={16} />
+                        ) : t === "Chapters" ? (
+                          <ListMusic size={16} />
+                        ) : t === "Transcript" ? (
+                          <FileText size={16} />
+                        ) : (
+                          <BookOpen size={16} />
+                        )}{" "}
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="results-layout">
+                    <section className="panel result-panel">
+                      {tab === "Overview" ? (
+                        <>
+                          <div className="panel-heading">
+                            <h2>The big picture</h2>
+                            <span className="tag">SOURCE-GROUNDED</span>
+                          </div>
+                          <p className="summary">{job.result.summary}</p>
+                          <div className="theme-chips">
+                            {job.result.themes.map((t) => (
+                              <span key={t}>{t}</span>
+                            ))}
+                          </div>
+                          <h3 className="takeaway-title">
+                            Ideas worth keeping
+                          </h3>
+                          {job.result.takeaways.map((t, i) => (
+                            <article className="real-takeaway" key={i}>
+                              <div>
+                                <span>0{i + 1}</span>
+                                <h3>{t.text}</h3>
+                              </div>
+                              {evidence(t)}
+                            </article>
+                          ))}
+                        </>
+                      ) : tab === "Chapters" ? (
+                        <>
+                          <h2>A map of the conversation</h2>
+                          <p className="muted">
+                            {job.kind === "audio"
+                              ? "Offsets are AI-estimated and may drift. Verify against the audio."
+                              : "Supplied timestamps are preserved. Untimed chapters navigate the text only."}
+                          </p>
+                          <div className="chapters">
+                            {job.result.chapters.map((c, i) => {
+                              const s = job.segments?.[c.segmentId];
+                              return (
+                                <article className="chapter" key={i}>
+                                  <button onClick={() => s && seek(s)}>
+                                    <span className="timestamp">
+                                      {s?.start !== null &&
+                                      s?.start !== undefined
+                                        ? timestamp(s.start)
+                                        : `§ ${c.segmentId + 1}`}
+                                    </span>
+                                    <div>
+                                      <h3>{c.title}</h3>
+                                      <p>{c.description}</p>
+                                    </div>
+                                    <ChevronRight size={16} />
+                                  </button>
+                                  {evidence(c)}
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : tab === "Transcript" ? (
+                        <>
+                          <h2>Back to the source.</h2>
+                          {job.segments?.map((s) => (
+                            <div
+                              className={
+                                "transcript-line " +
+                                (highlight === s.id ? "highlight" : "")
+                              }
+                              key={s.id}
+                              id={"segment-" + s.id}
+                            >
+                              <button
+                                className="timestamp"
+                                onClick={() => seek(s)}
+                              >
+                                {s.start === null
+                                  ? `§ ${s.id + 1}`
+                                  : timestamp(s.start)}
+                              </button>
+                              <p>{s.text}</p>
+                            </div>
+                          ))}
+                        </>
+                      ) : tab === "Quiz" ? (
+                        <>
+                          <div className="panel-heading">
+                            <h2>Let the ideas sink in.</h2>
+                            <span className="tag">
+                              {job.result.quiz.length} QUESTIONS
+                            </span>
+                          </div>
+                          <p className="muted">
+                            Choose an answer for every question, then check your
+                            understanding.
+                          </p>
+                          {job.result.quiz.map((q, i) => (
+                            <div className="question" key={i}>
+                              <h3>
+                                <span>0{i + 1}</span>
+                                {q.question}
+                              </h3>
+                              {q.options.map((o, j) => (
+                                <button
+                                  disabled={checked}
+                                  className={
+                                    "answer " +
+                                    (answers[i] === j ? "chosen " : "") +
+                                    (checked && j === q.answer
+                                      ? "correct "
+                                      : checked && answers[i] === j
+                                        ? "incorrect"
+                                        : "")
+                                  }
+                                  key={j}
+                                  onClick={() =>
+                                    setAnswers({ ...answers, [i]: j })
+                                  }
+                                >
+                                  <span>{String.fromCharCode(65 + j)}</span>
+                                  {o}
+                                  {checked && j === q.answer && (
+                                    <Check size={16} />
+                                  )}
+                                </button>
+                              ))}
+                              {checked && (
+                                <>
+                                  <p className="explanation">{q.explanation}</p>
+                                  {evidence(q)}
+                                </>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            className="btn orange"
+                            disabled={
+                              !checked &&
+                              Object.keys(answers).length !==
+                                job.result.quiz.length
+                            }
+                            onClick={() => {
+                              if (checked) {
+                                setChecked(false);
+                                setAnswers({});
+                              } else setChecked(true);
+                            }}
+                          >
+                            {checked ? "Try again" : "Check my answers"}{" "}
+                            <ArrowRight size={16} />
+                          </button>
+                          {checked && (
+                            <span className="quiz-score">
+                              {
+                                job.result.quiz.filter(
+                                  (q, i) => answers[i] === q.answer,
+                                ).length
+                              }{" "}
+                              / {job.result.quiz.length} correct
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <h2>Your revision trail</h2>
+                          {job.revisions?.length ? (
+                            job.revisions.map((r, i) => (
+                              <article className="revision-entry" key={i}>
+                                <span className="tag">{r.target}</span>
+                                <p>{r.instruction}</p>
+                                <small>{new Date(r.at).toLocaleString()}</small>
+                              </article>
+                            ))
+                          ) : (
+                            <p className="muted">
+                              No revisions yet. Ask for a change using the
+                              panel.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </section>
+                    <aside className="revision-panel">
+                      <span className="revision-icon">
+                        <Sparkles size={24} />
+                      </span>
+                      <h3>Make it yours.</h3>
+                      <p>
+                        Change one part while keeping the rest of your
+                        companion.
+                      </p>
+                      <label>
+                        What should change?
+                        <select
+                          value={target}
+                          onChange={(e) => setTarget(e.target.value)}
+                        >
+                          <option value="overview">Overview & takeaways</option>
+                          <option value="quiz">Quiz questions</option>
+                        </select>
+                      </label>
+                      <div className="revision-options">
+                        <button
+                          disabled={busy || job.status !== "completed"}
+                          onClick={() =>
+                            revise(
+                              target === "quiz"
+                                ? "Make the questions more challenging, using only the source."
+                                : "Make the overview shorter and focus on the most important points.",
+                            )
+                          }
+                        >
+                          {target === "quiz"
+                            ? "More challenging"
+                            : "Make it shorter"}{" "}
+                          <ChevronRight size={14} />
+                        </button>
+                        <button
+                          disabled={busy || job.status !== "completed"}
+                          onClick={() =>
+                            revise(
+                              "Explain this in simpler language, using only the source.",
+                            )
+                          }
+                        >
+                          Explain it simply <ChevronRight size={14} />
+                        </button>
+                      </div>
+                      <label>
+                        Your request
+                        <textarea
+                          value={instruction}
+                          onChange={(e) => setInstruction(e.target.value)}
+                          maxLength={500}
+                          rows={4}
+                          placeholder="e.g. Focus on practical advice…"
+                        />
+                      </label>
+                      <button
+                        className="btn dark full"
+                        disabled={
+                          busy ||
+                          job.status !== "completed" ||
+                          instruction.trim().length < 3
+                        }
+                        onClick={() => revise()}
+                      >
+                        Apply revision <Sparkles size={15} />
+                      </button>
+                      <small>
+                        Reuses your saved transcript. Only the selected section
+                        is replaced.
+                      </small>
+                      <div className="source-note">
+                        <Shield size={17} />
+                        <p>
+                          Exact evidence is verified against the transcript.
+                          Always check the source before relying on an AI
+                          interpretation.
+                        </p>
+                      </div>
+                    </aside>
+                  </div>
+                </>
+              )}
+              {job.segments && !job.result && (
+                <section className="panel pending-source">
+                  <h2>Your saved transcript</h2>
+                  <p className="transcript-text">{job.transcript}</p>
+                </section>
+              )}
+            </>
+          ) : null}
+          <div className="app-footer">
+            <span>
+              <AudioLines size={14} /> From a long listen to a lasting idea.
+            </span>
+            <span>Podwise · Thealon challenge</span>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
