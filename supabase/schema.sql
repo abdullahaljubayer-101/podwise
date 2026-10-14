@@ -37,3 +37,11 @@ grant execute on function public.podwise_reserve(text,text) to service_role;
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
 values('podwise-audio','podwise-audio',false,20971520,array['audio/mpeg','audio/wav','audio/x-wav','audio/mp4','audio/x-m4a']) on conflict(id) do nothing;
 -- No anon/authenticated policies are created. Next.js mediates all access.
+
+-- New Supabase projects may create this privileged DDL event trigger.
+-- Public API callers never need to execute it directly.
+do $$ begin
+ if to_regprocedure('public.rls_auto_enable()') is not null then
+  revoke execute on function public.rls_auto_enable() from public, anon, authenticated;
+ end if;
+end $$;
