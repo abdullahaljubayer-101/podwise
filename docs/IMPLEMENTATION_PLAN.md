@@ -25,5 +25,5 @@ Free Supabase workers have a 150-second lifetime. Each provider call has a short
 ## Delivery order
 Provision Free Supabase project and Gemini free-tier key; store credentials as Vercel secrets. Apply private schema and storage bucket, deploy worker. Replace frontend and implement API. Run validation tests/build. Push source, deploy publicly, test real transcript and audio paths, revisions, downloads, failures and mobile layouts. Capture an actual screen recording. Mark incomplete items honestly until verified.
 
-## Blocking setup
-Supabase database password creation requires user handoff. Gemini API key creation requires specific confirmation. Vercel deployment protection removal requires explicit approval because automatic approval review rejected the broader public-app request.
+## Provisioning decisions
+The user created the Supabase database password and approved Gemini key creation and server-only secret storage. Services are provisioned. The production alias is public without changing preview deployment protection. Worker authentication uses the explicitly configured PODWISE_SERVER_KEY. The model is Gemini 3.5 Flash-Lite after availability, quota, latency, and evidence-validation checks.
