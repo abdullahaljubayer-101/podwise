@@ -10,7 +10,9 @@ The public application is connected to Supabase Free, Vercel Hobby, and the Gemi
 - [Source code](https://github.com/abdullahaljubayer-101/podwise)
 - Model: `gemini-3.5-flash-lite`, selected after live availability and latency checks.
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- Responsive viewport verification and final demo recording are being finalized; see the verification notes for the exact scope.
+- [Demo screen recording](https://podwise-six.vercel.app/podwise-demo.mp4) · [Verification notes](docs/VERIFICATION.md) · [Responsive preview](https://podwise-six.vercel.app/responsive-preview.html)
+
+The demo uses actual low-frame-rate browser captures of input, live generation, chapters, quiz, a real revision, and its revision trail. Short gaps between capture segments are trimmed; generated results are not substituted.
 
 ## Features and limits
 
@@ -120,7 +122,7 @@ States: `awaiting_upload`, `queued`, `transcribing`, `awaiting_analysis`, `analy
 
 ### Known limitations
 
-Generative transcription can omit or mishear speech. Exact evidence checking does not guarantee a summary is a correct interpretation. Audio offsets are estimates; meaningful timestamp reliability must be verified on real recordings. Duration is decoded by the browser and checked as metadata by the server, rather than independently measured with FFmpeg. Session/network quotas can be circumvented by a determined attacker; this is an evaluation app, not a production abuse-control system. Expired database/storage records need scheduled retention cleanup. Supabase may pause inactive free projects. Mobile/tablet viewport tests, playback on physical devices, and long-recording accuracy need separate evaluation; the exact verification scope is documented.
+Generative transcription can omit or mishear speech. Exact evidence checking does not guarantee a summary is a correct interpretation. Audio offsets are estimates; meaningful timestamp reliability must be verified on real recordings. Duration is decoded by the browser and checked as metadata by the server, rather than independently measured with FFmpeg. Session/network quotas can be circumvented by a determined attacker; this is an evaluation app, not a production abuse-control system. Expired database/storage records need scheduled retention cleanup. Supabase may pause inactive free projects. Viewport checks exercised mobile, tablet and desktop layouts using 375/768/1280 px embedded browser frames. Testing on physical devices and long-recording accuracy need separate evaluation; the exact verification scope is documented.
 
 ## Debugging examples and verification
 
@@ -130,7 +132,7 @@ Generative transcription can omit or mishear speech. Exact evidence checking doe
 3. **Worker credential mismatch:** the first live request saved the transcript but received 403 from the internal worker. A direct authenticated worker request confirmed the mismatch, while decoding only non-secret JWT claims confirmed the server credential belonged to this project. Configured `PODWISE_SERVER_KEY` explicitly in Supabase, retained strict server-only bearer checking, and confirmed successful processing. No public database grant was added.
 4. **Model latency and lifecycle:** Gemini 2.5 returned a model-unavailable error despite appearing in discovery; 3.8 generated some results but also timed out or returned 503. Verified free-tier 3.5 Flash-Lite with a grounded structured request, added one bounded retry for transient 5xx/network failures, reduced output budget, and made revision schemas generate only selected fields. Failed revisions preserve the existing result. No paid fallback is enabled.
 
-Current validation: **22 automated tests passed** (8 pure validation tests and 14 mocked API tests), production build and TypeScript checks passed. Tests cover timestamp handling, invalid inputs, fabricated evidence, quiz integrity, quota stopping, session isolation, CSRF origin rejection and signed-upload URL handling. Live tests verified real transcript analysis, shortening an overview from 364 to 152 characters while preserving quiz/chapters/transcript, audio transcription and analysis of an original 75.82-second synthesized recording, chapter seeking and playback, quiz scoring (4/4), history search, and Markdown/JSON exports. Six additional live API checks verified readiness, session rejection, invalid input, CSRF origin rejection and cross-session isolation. Clipboard readback and native print dialogs cannot be fully inspected by the current browser interface; exports provide a verified alternative.
+Current validation: **22 automated tests passed** (8 pure validation tests and 14 mocked API tests), production build and TypeScript checks passed. Tests cover timestamp handling, invalid inputs, fabricated evidence, quiz integrity, quota stopping, session isolation, CSRF origin rejection and signed-upload URL handling. Live tests verified real transcript analysis, shortening an overview from 364 to 152 characters while preserving quiz/chapters/transcript, audio transcription and analysis of an original 75.82-second synthesized recording, chapter seeking and playback, quiz scoring (4/4), history search, and Markdown/JSON exports. Both overview and quiz revisions preserved unselected results. A disposable episode was deleted and became inaccessible. Six additional live API checks verified readiness, session rejection, invalid input, CSRF origin rejection and cross-session isolation. Clipboard readback and native print dialogs cannot be fully inspected by the current browser interface; exports provide a verified alternative.
 
 ## Cost and maintenance
 
@@ -150,8 +152,8 @@ Use only Supabase Free, Vercel Hobby and an unbilled Gemini project with availab
 - [x] Research comparison, architecture, setup, debugging notes, costs, limitations and three next improvements documented.
 - [x] Build, TypeScript checks and 22 local tests passed.
 - [x] Free service provisioning completed; secrets configured.
-- [x] Public Vercel production alias verified without sign-in; final source update is being synchronized.
+- [x] Public Vercel production alias verified without sign-in; final source update synchronized.
 - [x] Actual audio and transcript end-to-end tests passed.
-- [ ] Revision, playback, navigation, downloads and responsive browser behavior verified.
-- [ ] Actual short demonstration video recorded and linked.
-- [ ] Final secrets scan and source/deployment parity confirmed.
+- [x] Both revision targets, playback, navigation, downloads and responsive browser behavior verified; native clipboard/printing limits documented.
+- [x] Actual short low-frame-rate demonstration screen recording captured and linked.
+- [x] Final secrets scan and source/deployment parity confirmed.
