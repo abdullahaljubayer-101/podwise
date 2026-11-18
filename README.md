@@ -1,159 +1,140 @@
-# Podwise — From Audio to Insight
+<div align="center">
 
-A focused, account-free AI Podcast Companion for the Thealon Animation Studios engineering challenge. No landing page, authentication pages, pricing, payments, or cart.
+# 🎧 Podwise
 
-## Status
+### From audio to insight
 
-The public application is connected to Supabase Free, Vercel Hobby, and the Gemini free tier. Real transcript generation, overview revision, audio upload/transcription/analysis, quiz scoring, source navigation, and Markdown/JSON exports have been exercised on the live application. Temporary provider errors are surfaced; no placeholder output or paid fallback is used.
+![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
 
-- [Live app](https://podwise-six.vercel.app/)
-- [Source code](https://github.com/abdullahaljubayer-101/podwise)
-- Model: `gemini-3.5-flash-lite`, selected after live availability and latency checks.
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- [Demo screen recording](https://podwise-six.vercel.app/podwise-demo.mp4) · [Verification notes](docs/VERIFICATION.md) · [Responsive preview](https://podwise-six.vercel.app/responsive-preview.html)
+🌐 **[Live app](https://podwise-six.vercel.app/)** · 🎬 **[Demo video](https://podwise-six.vercel.app/podwise-demo.mp4)** · 📘 **[Technical notes](docs/TECHNICAL_NOTES.md)**
 
-The demo uses actual low-frame-rate browser captures of input, live generation, chapters, quiz, a real revision, and its revision trail. Short gaps between capture segments are trimmed; generated results are not substituted.
+</div>
 
-## Features and limits
+**Podwise** is an AI podcast companion. Upload an episode or paste a transcript, and it gives you a **summary, key themes, takeaways, chapters and a quiz**, with every point tied back to an exact quote from the source. 🎙️ ➜ 🧠
 
-- MP3/WAV/M4A uploads: maximum 20 MB and 20 minutes. Browser checks decoded duration; API validates supplied metadata; provider errors reject unreadable recordings. Content permission confirmation is required.
-- Text transcripts: 100–60,000 characters, with optional `[MM:SS]` or `[HH:MM:SS]` prefixes. Timestamps must be chronological.
-- Actual Gemini summary, themes, takeaways, chapter descriptions and 3–5 multiple-choice questions, checked against exact source quotes.
-- Navigable transcript references. Original transcript timestamps are preserved. Audio offsets are explicitly **AI-estimated**, not guaranteed alignment. Untimed text never receives invented timestamps.
-- Overview/quiz revisions reuse the saved transcript and preserve all unselected sections. Revision trail retained (max 10 revisions).
-- Audio player; quiz scoring, answers and explanations; copy, Markdown/JSON downloads, and printable current-section notes.
-- Private anonymous browser history, stage progress, safe errors and retries. No account required. Clearing browser storage loses the random capability used to access that browser's history.
-- Free-demo limits: 5 processing/revision reservations per browser per hour, 8 per network, 30 globally. No paid provider fallback.
+I built it for the **Thealon AI Engineering Challenge**. The goal was to make podcasts easy to revisit: find a specific idea without replaying the whole episode, and check that you actually understood it.
 
-## Local setup
+---
 
-Requires **Node.js 24** and npm.
+## ✨ Features
 
-```sh
-npm ci
-cp .env.example .env.local
-# Set the server-only variables described below.
-npm run dev
-```
+- 🎵 **Audio or text input**: MP3 / WAV / M4A (up to 20 MB and 20 min), or a pasted transcript (with optional `[MM:SS]` timestamps)
+- 📝 **AI overview**: summary, themes and key takeaways
+- 📚 **Chapters** with descriptions and clickable transcript references
+- ❓ **3–5 question quiz** with scoring, answers and explanations
+- 🔎 **Source-grounded output**: each claim cites an exact quote, and the app rejects anything it can't find in the transcript
+- ✏️ **Targeted revisions**: rewrite only the overview or only the quiz, keep everything else, with a revision trail (up to 10)
+- ▶️ **Audio player** that jumps to chapters (audio offsets are clearly marked as AI-estimated)
+- 📤 **Export** to Markdown or JSON, copy to clipboard, or print notes
+- 🕶️ **No account needed**: private per-browser history, progress tracking and safe retries
+- 💸 **Runs on free tiers**: Supabase Free, Vercel Hobby and the Gemini free tier, with rate limits to keep it that way
 
-Open http://localhost:3000.
-
-```sh
-npm run build
-npm test
-```
-
-Tests exercise input/output validation and the compiled Next.js API with mocked external services. They do not prove actual Gemini, Supabase, or browser behavior.
-
-### Server-only configuration
-
-| Variable | Purpose |
-| --- | --- |
-| `SUPABASE_URL` | Supabase project API URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only legacy service key; never expose through NEXT_PUBLIC variables |
-| `GEMINI_API_KEY` | Free-tier Gemini API key, server-only |
-| `GEMINI_MODEL` | Optional; defaults to `gemini-3.5-flash-lite`, tested with the project free quota |
-
-Do not print or commit secret values. Set them in Vercel's encrypted environment variables for deployment. Do not enable billing.
-
-### Supabase provisioning
-
-1. Create the `podwise` project in the selected **Free** organization.
-2. Run `supabase/schema.sql` as the project owner. Tables have RLS and no anon/authenticated grants; storage is private with no public policies.
-3. Deploy the `podwise-worker` Edge Function from `supabase/functions/podwise-worker/index.ts` with `core.ts` included.
-4. Set the custom Supabase Edge Function secret `PODWISE_SERVER_KEY` to the same service-role credential configured in Vercel. This avoids reliance on an implicit default credential differing between worker and dashboard. Never commit its value.
-5. Disable gateway JWT verification **only for this worker**: its handler verifies the internal bearer credential against `PODWISE_SERVER_KEY` (with a legacy environment fallback) before any database/model operation. The browser never receives this credential. Supabase provides the project's URL and service-role key to its worker environment.
-6. The Next.js server invokes the worker over TLS. Gemini credentials are passed only in the server-to-worker request body, are not logged or saved in job rows, and must not be exposed in request-body logging.
-7. Periodically clean old jobs and associated audio objects. Current 24-hour history expiration restricts API access; it does **not** by itself delete stored data.
-
-### Vercel deployment
-
-Import the GitHub repository into the `podwise` project. Use the **Next.js** preset, `npm ci`, `npm run build`, and the **default output directory**. Do not set `out`; the implementation now includes server routes and no longer uses static export. Use the Hobby plan. The production alias above has been tested without Vercel login. Preview URLs may still use deployment protection; leave that protection in place.
-
-## Research and comparison
-
-The target user is a learner or curious listener who wants to retrieve specific ideas and check understanding without replaying an entire episode.
-
-| Approach | Suitability | Integration and reliability | Cost/latency considerations |
-| --- | --- | --- | --- |
-| Gemini audio understanding + structured generation | One provider can transcribe audio and generate episode analysis | Schema-constrained JSON plus application checks. Generative timestamps can drift; citations verify quotes but cannot prove every interpretation | Available free quota is required; two audio stages plus one model request per revision. Must test actual model access and time per stage |
-| OpenAI speech-to-text + text generation | Dedicated transcription followed by separate analysis | Separate integrations; timestamp support depends on transcription model/format. Still requires source grounding and output checks | Paid API usage is not enabled for this zero-budget project; an alternative if approved credits become available |
-
-Gemini is the selected choice because free quota is a requirement. Model selection is configuration, not an assumption of unlimited or permanent free availability. A permitted 1,401-character structured analysis request to Gemini 3.5 Flash-Lite completed in 18.9 seconds and passed evidence validation in one direct test. This is an observed sample, not a guaranteed or production benchmark. Gemini 2.5 Flash was listed but rejected for this new project; Gemini 3.8 Flash worked but encountered timeouts and 503s during longer tests, so the default was changed.
-
-Official references and design implications:
-- [Gemini audio understanding](https://ai.google.dev/gemini-api/docs/audio): supports recorded audio and transcription-style prompts; use the Files API for larger recordings.
-- [Gemini structured outputs](https://ai.google.dev/gemini-api/docs/structured-output): JSON schemas constrain format, but application validation and factual checks remain necessary.
-- [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing): free-tier access is limited and free content may be used to improve Google products; disclose this before upload.
-- [OpenAI speech-to-text](https://platform.openai.com/docs/guides/speech-to-text): an alternative dedicated transcription approach.
-- [Supabase background tasks](https://supabase.com/docs/guides/functions/background-tasks): `EdgeRuntime.waitUntil` continues processing after a response; it is still bounded by worker limits.
-- [Supabase function limits](https://supabase.com/docs/guides/functions/limits): Free workers have a limited lifetime, so transcription and analysis are separate stages.
-- [Vercel function limits](https://vercel.com/docs/functions/limitations): large audio should upload directly to storage.
-- [OWASP API Security](https://owasp.org/www-project-api-security/): ownership checks, resource limits and private credentials are required even without user accounts.
-
-## Architecture and background jobs
+## 🧠 How it works
 
 ```mermaid
 flowchart TD
- B[Browser workspace] --> N[Next.js API]
+ B[Browser] --> N[Next.js API on Vercel]
  B -->|Signed audio upload| S[Private Supabase Storage]
  N --> D[Supabase Postgres]
- N --> W[Supabase Edge worker]
+ N --> W[Supabase Edge Function worker]
  W --> S
  W --> G[Gemini API]
  W --> D
 ```
 
-Flow: validate → reserve quota → save job → direct audio upload if present → transcribe → save transcript → analyze → validate exact evidence and quiz structure → save results → display. Revisions change only the chosen result fields.
+1. The browser validates the input, and the API **reserves quota** and creates a job.
+2. Audio goes **straight to private Supabase Storage** with a signed upload URL, so big files never pass through the API.
+3. A **Supabase Edge Function** runs the work in stages: transcribe → save transcript → analyze.
+4. Gemini returns **structured JSON**, and the app checks every quote, chapter and quiz answer before saving.
+5. The browser asks for the next stage when the previous one finishes and shows the results as they're ready. If you close the tab mid-way, reopening it picks up where it left off.
 
-States: `awaiting_upload`, `queued`, `transcribing`, `awaiting_analysis`, `analyzing`, `completed`, `revising`, `failed`. Compare-and-set claims and lease IDs prevent simultaneous workers from overwriting a different lease. A stalled worker becomes retryable; a saved transcript avoids repeating transcription.
+Jobs move through clear states (`queued`, `transcribing`, `analyzing`, `completed`, `failed`…). A saved transcript means a failed step can retry without transcribing again.
 
-**Can Supabase replace Inngest here? Yes, for bounded stages.** This implementation uses Supabase background tasks and persisted state, with the browser requesting the next stage. Closing the browser can leave an episode awaiting analysis; reopening resumes it. This is not an unattended durable queue. A scheduled queue worker or Inngest would be appropriate if uninterrupted background continuation or longer recordings were required. Neither is falsely claimed as implemented.
+## 🛠️ Tech stack
 
-## Reliability and security
+| Layer | Tools |
+| ----- | ----- |
+| Frontend | Next.js 15 (App Router), React 19, TypeScript, Lucide icons |
+| API | Next.js route handlers on Vercel |
+| Database & storage | Supabase Postgres (RLS, no public grants) + private Storage |
+| Background work | Supabase Edge Functions |
+| AI | Google Gemini (`gemini-3.5-flash-lite` by default) |
+| Testing | Node's built-in test runner |
 
-- Random, unguessable browser capabilities are hashed before storage; every read/mutation checks ownership. They are not user accounts and must not be shared.
-- DB tables and storage are inaccessible to public clients. Signed uploads/read links are scoped and time-limited.
-- Evidence must be an exact normalized substring of the cited source segment. Unknown segments, invalid/duplicate quiz choices, out-of-range answer indexes and nonchronological chapter references are rejected.
-- Source content is explicitly treated as untrusted data in model instructions. No tool execution or user-provided URLs are sent to arbitrary hosts.
-- Network calls have finite timeouts. Free quota failures and malformed/unfinished responses produce explicit errors; no canned results or paid fallback.
-- API keys remain server-side. Raw provider errors and source transcripts are not logged by the worker.
-- Temporary Gemini uploaded files are deleted in a `finally` block when the worker finishes. A forcibly terminated worker may prevent that cleanup; provider lifecycle limits and project maintenance still matter.
+## 🚀 Run it locally
 
-### Known limitations
+**Requirements:** Node.js 24 and npm.
 
-Generative transcription can omit or mishear speech. Exact evidence checking does not guarantee a summary is a correct interpretation. Audio offsets are estimates; meaningful timestamp reliability must be verified on real recordings. Duration is decoded by the browser and checked as metadata by the server, rather than independently measured with FFmpeg. Session/network quotas can be circumvented by a determined attacker; this is an evaluation app, not a production abuse-control system. Expired database/storage records need scheduled retention cleanup. Supabase may pause inactive free projects. Viewport checks exercised mobile, tablet and desktop layouts using 375/768/1280 px embedded browser frames. Testing on physical devices and long-recording accuracy need separate evaluation; the exact verification scope is documented.
+```bash
+git clone https://github.com/abdullahaljubayer-101/podwise.git
+cd podwise
+npm ci
+cp .env.example .env.local
+```
 
-## Debugging examples and verification
+Fill in `.env.local`:
 
-1. **Vercel output mismatch:** static `out` configuration with the Next.js preset produced `NEXT_NO_ROUTES_MANIFEST`. Restoring Vercel's default output setting fixed the frontend deployment. The new server build also uses the default output.
-2. **Long source truncation:** initial transcript chunking could skip the beginning of a long unbroken paragraph. Replaced regex matching with explicit bounded slicing; added a regression test asserting all 2,800 source characters survive.
+| Variable | Purpose |
+| -------- | ------- |
+| `SUPABASE_URL` | Your Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service key (never expose it to the browser) |
+| `GEMINI_API_KEY` | Gemini API key (server-only) |
+| `GEMINI_MODEL` | Optional, defaults to `gemini-3.5-flash-lite` |
 
-3. **Worker credential mismatch:** the first live request saved the transcript but received 403 from the internal worker. A direct authenticated worker request confirmed the mismatch, while decoding only non-secret JWT claims confirmed the server credential belonged to this project. Configured `PODWISE_SERVER_KEY` explicitly in Supabase, retained strict server-only bearer checking, and confirmed successful processing. No public database grant was added.
-4. **Model latency and lifecycle:** Gemini 2.5 returned a model-unavailable error despite appearing in discovery; 3.8 generated some results but also timed out or returned 503. Verified free-tier 3.5 Flash-Lite with a grounded structured request, added one bounded retry for transient 5xx/network failures, reduced output budget, and made revision schemas generate only selected fields. Failed revisions preserve the existing result. No paid fallback is enabled.
+Then:
 
-Current validation: **22 automated tests passed** (8 pure validation tests and 14 mocked API tests), production build and TypeScript checks passed. Tests cover timestamp handling, invalid inputs, fabricated evidence, quiz integrity, quota stopping, session isolation, CSRF origin rejection and signed-upload URL handling. Live tests verified real transcript analysis, shortening an overview from 364 to 152 characters while preserving quiz/chapters/transcript, audio transcription and analysis of an original 75.82-second synthesized recording, chapter seeking and playback, quiz scoring (4/4), history search, and Markdown/JSON exports. Both overview and quiz revisions preserved unselected results. A disposable episode was deleted and became inaccessible. Six additional live API checks verified readiness, session rejection, invalid input, CSRF origin rejection and cross-session isolation. Clipboard readback and native print dialogs cannot be fully inspected by the current browser interface; exports provide a verified alternative.
+```bash
+npm run dev        # http://localhost:3000
+npm run build
+npm run typecheck
+npm test
+```
 
-## Cost and maintenance
+> ⚙️ You'll also need to run `supabase/schema.sql` and deploy the `podwise-worker` Edge Function. The full step-by-step setup is in the [technical notes](docs/TECHNICAL_NOTES.md#supabase-provisioning).
 
-Use only Supabase Free, Vercel Hobby and an unbilled Gemini project with available free quota. Stop when quotas are exhausted. No payment integration, billing upgrade or paid fallback exists. Review provider quotas/model lifecycle, dependency updates, retention cleanup, failed stages and paused-project status.
+## 🔒 Security and reliability
 
-## Three prioritized improvements
+- No user accounts. Each browser gets a random, unguessable key that is **hashed** before storage, and every request checks ownership.
+- Database tables and storage are **closed to public clients**. Uploads and reads use short-lived signed URLs.
+- API keys stay on the server. The worker never logs raw transcripts or provider errors.
+- Every network call has a timeout. Quota limits, bad input and model errors show clear messages instead of fake results.
 
-1. **Unattended durable continuation:** add Supabase Queues/Cron or Inngest once long recordings or closed-tab continuation are needed; avoid jobs waiting for a browser.
-2. **Better transcription alignment and evaluation:** compare a dedicated ASR model with generative transcription, measure timestamp/error rates, and evaluate claim grounding on a permitted test corpus.
-3. **Retention and stronger abuse protection:** automate storage/job expiry and add provider-level request budgets or challenge-based throttling so public evaluation remains private and inexpensive.
+## 🧪 Testing
 
-## Final submission checklist
+**22 automated tests** cover input validation, timestamps, fabricated evidence, quiz integrity, quota limits, session isolation, CSRF origin checks and signed uploads. The live app was also tested end to end with real audio and transcripts. See [VERIFICATION.md](docs/VERIFICATION.md).
 
-- [x] Focused, responsive, account-free interface implemented.
-- [x] Audio/transcript, real provider integration code, chapters, quizzes and targeted revisions implemented.
-- [x] Private schema and bounded background worker implemented.
-- [x] Research comparison, architecture, setup, debugging notes, costs, limitations and three next improvements documented.
-- [x] Build, TypeScript checks and 22 local tests passed.
-- [x] Free service provisioning completed; secrets configured.
-- [x] Public Vercel production alias verified without sign-in; final source update synchronized.
-- [x] Actual audio and transcript end-to-end tests passed.
-- [x] Both revision targets, playback, navigation, downloads and responsive browser behavior verified; native clipboard/printing limits documented.
-- [x] Actual short low-frame-rate demonstration screen recording captured and linked.
-- [x] Final secrets scan and source/deployment parity confirmed.
+## 🗺️ What I'd add next
+
+1. **Unattended background jobs** (Supabase Queues/Cron or Inngest), so processing continues even after the tab is closed
+2. **Better transcription alignment**, comparing a dedicated speech-to-text model and measuring timestamp accuracy
+3. **Automatic data cleanup and stronger abuse protection** for the public demo
+
+## 📁 Project structure
+
+```text
+podwise/
+├── app/
+│   ├── page.tsx                  # The whole workspace UI
+│   ├── layout.tsx
+│   └── api/route.ts              # API: jobs, uploads, revisions, history
+├── supabase/
+│   ├── schema.sql                # Tables, RLS, private storage
+│   └── functions/podwise-worker/ # Edge Function: transcribe + analyze
+├── tests/                        # Validation + API tests
+└── docs/
+    ├── TECHNICAL_NOTES.md        # Research, architecture, debugging, limits, costs
+    ├── IMPLEMENTATION_PLAN.md
+    └── VERIFICATION.md
+```
+
+---
+
+<div align="center">
+
+Made by **Abdullah Al Jubayer** · [GitHub](https://github.com/abdullahaljubayer-101) · [Portfolio](https://abdullahaljubayer.com)
+
+</div>
